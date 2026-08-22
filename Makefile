@@ -1,4 +1,4 @@
-.PHONY: build test race run
+.PHONY: build test race fidelity run
 
 build:
 	mkdir -p bin
@@ -10,6 +10,9 @@ test:
 
 race:
 	go test -race ./...
+
+fidelity: build
+	QUEUEMAXXING_BIN="$(CURDIR)/bin/queuemaxxing" go test -tags=fidelity -count=1 ./...
 
 run:
 	go run ./cmd/queuemaxxing

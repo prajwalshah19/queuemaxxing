@@ -93,8 +93,8 @@ func (q *Queue) NackWithOptions(id, receipt string, delayOverride *time.Duration
 	}
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	if q.closed {
-		return RetryResult{}, ErrClosed
+	if err := q.ensureWritableLocked(); err != nil {
+		return RetryResult{}, err
 	}
 	m, ok := q.messages[id]
 	now := q.clock.Now().UTC()
@@ -181,8 +181,8 @@ func (q *Queue) ReplayDeadLetter(id string, delay time.Duration) (Message, error
 	}
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	if q.closed {
-		return Message{}, ErrClosed
+	if err := q.ensureWritableLocked(); err != nil {
+		return Message{}, err
 	}
 	letter, ok := q.deadLetters[id]
 	if !ok {

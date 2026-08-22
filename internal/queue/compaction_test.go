@@ -201,6 +201,66 @@ func TestCompactionDirectorySyncFailurePoisonsMutations(t *testing.T) {
 	}
 }
 
+func TestTerminalStorageRejectsEveryMutationButAllowsDiagnostics(t *testing.T) {
+	policy := RetryPolicy{MaxAttempts: 1, BaseDelay: time.Second, MaxDelay: time.Second}
+	h := newQueueHarness(t, Config{Discipline: FIFO, RetryPolicy: policy})
+
+	dead, err := h.q.Enqueue(json.RawMessage(`{"kind":"dead"}`), 100, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	delivery, err := h.q.Reserve(time.Hour)
+	if err != nil || delivery == nil || delivery.ID != dead.ID {
+		t.Fatalf("reserve dead candidate: delivery=%+v err=%v", delivery, err)
+	}
+	if _, err := h.q.NackWithOptions(delivery.ID, delivery.Receipt, nil); err != nil {
+		t.Fatal(err)
+	}
+	leased, err := h.q.Enqueue(json.RawMessage(`{"kind":"leased"}`), 100, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	delivery, err = h.q.Reserve(time.Hour)
+	if err != nil || delivery == nil || delivery.ID != leased.ID {
+		t.Fatalf("reserve leased candidate: delivery=%+v err=%v", delivery, err)
+	}
+	if _, err := h.q.Enqueue(json.RawMessage(`{"kind":"ready"}`), 0, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	h.q.wal.ops.openDir = func(string) (syncCloser, error) {
+		return &failNthSyncCloser{failAt: 2}, nil
+	}
+	if _, err := h.q.Compact(); !errors.Is(err, ErrStorageUnavailable) {
+		t.Fatalf("Compact error = %v", err)
+	}
+
+	checks := []struct {
+		name string
+		run  func() error
+	}{
+		{name: "enqueue", run: func() error { _, err := h.q.Enqueue(json.RawMessage(`{"new":true}`), 0, 0); return err }},
+		{name: "reserve", run: func() error { _, err := h.q.Reserve(time.Minute); return err }},
+		{name: "ack", run: func() error { return h.q.Ack(delivery.ID, delivery.Receipt) }},
+		{name: "nack", run: func() error { return h.q.Nack(delivery.ID, delivery.Receipt, 0) }},
+		{name: "extend", run: func() error { _, err := h.q.ExtendLease(delivery.ID, delivery.Receipt, 2*time.Hour); return err }},
+		{name: "dead-letter replay", run: func() error { _, err := h.q.ReplayDeadLetter(dead.ID, 0); return err }},
+	}
+	for _, check := range checks {
+		t.Run(check.name, func(t *testing.T) {
+			if err := check.run(); !errors.Is(err, ErrStorageUnavailable) {
+				t.Fatalf("error = %v, want ErrStorageUnavailable", err)
+			}
+		})
+	}
+	if stats := h.q.Stats(); stats.Total != 2 || stats.DeadLetters != 1 {
+		t.Fatalf("read-only stats failed after poison: %+v", stats)
+	}
+	if letters, err := h.q.ListDeadLetters(10); err != nil || len(letters) != 1 {
+		t.Fatalf("read-only dead-letter list: letters=%+v err=%v", letters, err)
+	}
+}
+
 func TestConcurrentMutationLinearizesAfterCompaction(t *testing.T) {
 	h := newQueueHarness(t, Config{Discipline: FIFO})
 	originalRename := h.q.wal.ops.rename

@@ -27,9 +27,9 @@ func (q *Queue) ReserveWait(ctx context.Context, visibilityTimeout, waitTimeout 
 	deadline := q.clock.Now().UTC().Add(waitTimeout)
 	for {
 		q.mu.Lock()
-		if q.closed {
+		if err := q.ensureWritableLocked(); err != nil {
 			q.mu.Unlock()
-			return nil, ErrClosed
+			return nil, err
 		}
 		if err := ctx.Err(); err != nil {
 			q.mu.Unlock()

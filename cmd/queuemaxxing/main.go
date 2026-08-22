@@ -19,12 +19,41 @@ func main() {
 	addr := flag.String("addr", ":8080", "HTTP listen address")
 	data := flag.String("data", "data/queue.wal", "path to the queue WAL")
 	discipline := flag.String("discipline", "fifo", "tie-break order: fifo or lifo")
+	idempotencyRetention := flag.Duration("idempotency-retention", queue.DefaultIdempotencyRetention, "producer idempotency-key retention")
+	maxAttempts := flag.Int("max-attempts", queue.DefaultMaxAttempts, "maximum delivery attempts before dead-lettering")
+	retryBaseDelay := flag.Duration("retry-base-delay", queue.DefaultRetryBaseDelay, "automatic retry backoff base")
+	retryMaxDelay := flag.Duration("retry-max-delay", queue.DefaultRetryMaxDelay, "automatic retry backoff cap")
+	compactOnStart := flag.Bool("compact-on-start", false, "replace WAL history with a current-state snapshot before listening")
 	flag.Parse()
 
-	q, err := queue.Open(*data, queue.Discipline(*discipline))
+	q, err := queue.OpenWithConfig(*data, queue.Config{
+		Discipline:           queue.Discipline(*discipline),
+		IdempotencyRetention: *idempotencyRetention,
+		RetryPolicy: queue.RetryPolicy{
+			MaxAttempts: *maxAttempts,
+			BaseDelay:   *retryBaseDelay,
+			MaxDelay:    *retryMaxDelay,
+		},
+	})
 	if err != nil {
 		slog.Error("open queue", "error", err)
 		os.Exit(1)
+	}
+	if *compactOnStart {
+		result, err := compactQueueOnStart(q, true)
+		if err != nil {
+			_ = q.Close()
+			slog.Error("compact queue on start", "error", err)
+			os.Exit(1)
+		}
+		slog.Info("compacted queue on start",
+			"old_bytes", result.OldBytes,
+			"new_bytes", result.NewBytes,
+			"size_delta", result.SizeDelta,
+			"messages", result.Messages,
+			"dead_letters", result.DeadLetters,
+			"idempotency_keys", result.IdempotencyKeys,
+		)
 	}
 
 	server := &http.Server{
@@ -32,7 +61,7 @@ func main() {
 		Handler:           httpapi.New(q),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      10 * time.Second,
+		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
 
@@ -53,7 +82,7 @@ func main() {
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
 	if err := server.Shutdown(ctx); err != nil {
 		slog.Error("shutdown HTTP server", "error", err)
@@ -62,4 +91,11 @@ func main() {
 		slog.Error("close queue", "error", err)
 	}
 	fmt.Println("stopped")
+}
+
+func compactQueueOnStart(q *queue.Queue, enabled bool) (queue.CompactionResult, error) {
+	if !enabled {
+		return queue.CompactionResult{}, nil
+	}
+	return q.Compact()
 }

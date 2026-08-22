@@ -240,8 +240,8 @@ func (q *Queue) EnqueueIdempotent(body json.RawMessage, priority int, delay time
 
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	if q.closed {
-		return EnqueueResult{}, ErrClosed
+	if err := q.ensureWritableLocked(); err != nil {
+		return EnqueueResult{}, err
 	}
 
 	now := q.clock.Now().UTC()
@@ -296,8 +296,8 @@ func (q *Queue) EnqueueIdempotent(body json.RawMessage, priority int, delay time
 func (q *Queue) Ack(id, receipt string) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	if q.closed {
-		return ErrClosed
+	if err := q.ensureWritableLocked(); err != nil {
+		return err
 	}
 	m, ok := q.messages[id]
 	now := q.clock.Now().UTC()

@@ -16,8 +16,8 @@ func (q *Queue) ExtendLease(id, receipt string, visibilityTimeout time.Duration)
 
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	if q.closed {
-		return LeaseExtension{}, ErrClosed
+	if err := q.ensureWritableLocked(); err != nil {
+		return LeaseExtension{}, err
 	}
 
 	now := q.clock.Now().UTC()
