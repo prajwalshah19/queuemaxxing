@@ -1,8 +1,11 @@
 package queue
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"testing"
@@ -147,6 +150,93 @@ func TestCompactionDropsExpiredIdempotency(t *testing.T) {
 	}
 	if second.Replayed || second.Message.ID == first.Message.ID {
 		t.Fatalf("expired idempotency result was retained: first=%+v second=%+v", first, second)
+	}
+}
+
+func TestCompactionReducesLongCompletedHistory(t *testing.T) {
+	t.Parallel()
+
+	h := newQueueHarness(t, Config{Discipline: FIFO})
+	for i := 0; i < 50; i++ {
+		message, err := h.q.Enqueue(json.RawMessage(`{"completed":true}`), 0, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		delivery, err := h.q.Reserve(time.Minute)
+		if err != nil || delivery == nil || delivery.ID != message.ID {
+			t.Fatalf("iteration %d reserve: delivery=%+v err=%v", i, delivery, err)
+		}
+		if err := h.q.Ack(delivery.ID, delivery.Receipt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, err := h.q.Compact()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Messages != 0 || result.NewBytes >= result.OldBytes || result.SizeDelta <= 0 {
+		t.Fatalf("completed-history compaction result = %+v", result)
+	}
+	h.reopen()
+	if stats := h.q.Stats(); stats.Total != 0 {
+		t.Fatalf("completed messages revived: %+v", stats)
+	}
+}
+
+func TestTornOperationalTailAfterSnapshotIsTruncated(t *testing.T) {
+	t.Parallel()
+
+	h := newQueueHarness(t, Config{Discipline: FIFO})
+	message, err := h.q.Enqueue(json.RawMessage(`{"kept":true}`), 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.q.Compact(); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.q.Close(); err != nil {
+		t.Fatal(err)
+	}
+	h.q = nil
+
+	completeSize := fileSize(t, h.path)
+	f, err := os.OpenFile(h.path, os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var partialHeader [6]byte
+	binary.BigEndian.PutUint32(partialHeader[:4], 100)
+	if _, err := f.Write(partialHeader[:]); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Sync(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	h.open()
+	if got := fileSize(t, h.path); got != completeSize {
+		t.Fatalf("torn tail size after recovery = %d, want %d", got, completeSize)
+	}
+	if h.q.messages[message.ID] == nil {
+		t.Fatal("committed snapshot state was lost")
+	}
+}
+
+func TestCompactRejectsClosedQueue(t *testing.T) {
+	t.Parallel()
+
+	q, err := Open(filepath.Join(t.TempDir(), "queue.wal"), FIFO)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := q.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := q.Compact(); !errors.Is(err, ErrClosed) {
+		t.Fatalf("Compact error = %v, want ErrClosed", err)
 	}
 }
 

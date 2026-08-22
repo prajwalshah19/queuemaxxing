@@ -4,6 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
+	"hash/crc32"
 	"os"
 	"strings"
 	"testing"
@@ -26,6 +28,62 @@ func TestSnapshotRequiresCommitWithoutTruncating(t *testing.T) {
 	if after := fileSize(t, path); after != before {
 		t.Fatalf("invalid snapshot was truncated: size %d -> %d", before, after)
 	}
+}
+
+func TestTornUncommittedSnapshotIsNotTruncated(t *testing.T) {
+	t.Parallel()
+
+	path := writeSnapshotFixture(t, func(writer *replacementWriter) error {
+		begin := validSnapshotBegin("torn-snapshot")
+		if _, err := writer.Append(event{Type: "snapshot_begin", SnapshotBegin: &begin}); err != nil {
+			return err
+		}
+		_, err := writer.file.Write([]byte{0, 0, 0, 100, 1, 2})
+		return err
+	})
+	before := fileSize(t, path)
+
+	if _, err := Open(path, FIFO); err == nil || !strings.Contains(err.Error(), "commit") {
+		t.Fatalf("Open error = %v, want uncommitted snapshot failure", err)
+	}
+	if after := fileSize(t, path); after != before {
+		t.Fatalf("torn uncommitted snapshot was truncated: size %d -> %d", before, after)
+	}
+}
+
+func TestSnapshotChecksumUsesExactRawJSONPayload(t *testing.T) {
+	t.Parallel()
+
+	path := writeSnapshotFixture(t, func(writer *replacementWriter) error {
+		begin := validSnapshotBegin("raw-payload")
+		payload, err := json.Marshal(event{Type: "snapshot_begin", SnapshotBegin: &begin})
+		if err != nil {
+			return err
+		}
+		payload = append(payload[:len(payload)-1], []byte(`,"future_field":true}`)...)
+		frame := make([]byte, frameHeaderSize+len(payload))
+		binary.BigEndian.PutUint32(frame[:4], uint32(len(payload)))
+		binary.BigEndian.PutUint32(frame[4:8], crc32.ChecksumIEEE(payload))
+		copy(frame[frameHeaderSize:], payload)
+		if _, err := writer.file.Write(frame); err != nil {
+			return err
+		}
+
+		digest := sha256.New()
+		hashSnapshotPayload(digest, payload)
+		commit := snapshotCommit{
+			Generation: begin.Generation,
+			Checksum:   hex.EncodeToString(digest.Sum(nil)),
+		}
+		_, err = writer.Append(event{Type: "snapshot_commit", SnapshotCommit: &commit})
+		return err
+	})
+
+	q, err := Open(path, FIFO)
+	if err != nil {
+		t.Fatalf("raw-payload checksum was recomputed from decoded JSON: %v", err)
+	}
+	defer q.Close()
 }
 
 func TestSnapshotRejectsInvalidCommit(t *testing.T) {

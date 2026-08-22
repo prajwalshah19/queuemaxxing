@@ -171,6 +171,14 @@ func TestWALReplaceFailureBeforeRenamePreservesWritableOldGeneration(t *testing.
 		write  func(*replacementWriter) error
 	}{
 		{
+			name: "directory open",
+			mutate: func(w *wal) {
+				w.ops.openDir = func(string) (syncCloser, error) {
+					return nil, errors.New("injected directory open failure")
+				}
+			},
+		},
+		{
 			name: "directory preflight sync",
 			mutate: func(w *wal) {
 				w.ops.openDir = func(string) (syncCloser, error) {
@@ -179,9 +187,30 @@ func TestWALReplaceFailureBeforeRenamePreservesWritableOldGeneration(t *testing.
 			},
 		},
 		{
+			name: "temp create",
+			mutate: func(w *wal) {
+				w.ops.createTemp = func(string, string) (walFile, error) {
+					return nil, errors.New("injected temp create failure")
+				}
+			},
+		},
+		{
 			name: "writer",
 			write: func(*replacementWriter) error {
 				return errors.New("injected writer failure")
+			},
+		},
+		{
+			name: "replacement write",
+			mutate: func(w *wal) {
+				createTemp := w.ops.createTemp
+				w.ops.createTemp = func(dir, pattern string) (walFile, error) {
+					f, err := createTemp(dir, pattern)
+					if err != nil {
+						return nil, err
+					}
+					return &failWriteWALFile{walFile: f}, nil
+				}
 			},
 		},
 		{
@@ -240,6 +269,25 @@ func TestWALReplaceFailureBeforeRenamePreservesWritableOldGeneration(t *testing.
 				t.Fatalf("stale temp after definite failure: %v", matches)
 			}
 		})
+	}
+}
+
+func TestWALReplacePreservesPrivateFileMode(t *testing.T) {
+	t.Parallel()
+
+	w := openTestWAL(t)
+	if _, err := w.Replace(func(writer *replacementWriter) error {
+		_, err := writer.Append(event{Type: "config", Discipline: FIFO})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(w.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("replacement mode = %04o, want 0600", got)
 	}
 }
 
@@ -323,6 +371,14 @@ type failSyncWALFile struct {
 }
 
 func (f *failSyncWALFile) Sync() error { return errors.New("injected sync failure") }
+
+type failWriteWALFile struct {
+	walFile
+}
+
+func (f *failWriteWALFile) Write([]byte) (int, error) {
+	return 0, errors.New("injected write failure")
+}
 
 type failNthSyncCloser struct {
 	calls  int
