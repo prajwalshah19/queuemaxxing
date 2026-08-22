@@ -1,14 +1,44 @@
 package main
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/prajwalshah19/queuemaxxing/internal/queue"
 )
+
+func TestUnifiedEntrypointRunsClientCommands(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	wantArgs := []string{"-url", "http://queue.test", "stats"}
+	code := runApplicationWithClient(wantArgs, &stdout, &stderr, func(args []string, output, _ io.Writer) int {
+		if !reflect.DeepEqual(args, wantArgs) {
+			t.Fatalf("client args = %v, want %v", args, wantArgs)
+		}
+		_, _ = fmt.Fprintln(output, `{"ready": 3}`)
+		return 0
+	})
+	if code != 0 {
+		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
+	}
+	if got := stdout.String(); !bytes.Contains([]byte(got), []byte(`"ready": 3`)) {
+		t.Fatalf("stdout = %q", got)
+	}
+}
+
+func TestUnifiedEntrypointRejectsUnknownCommand(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := runApplication([]string{"unknown"}, &stdout, &stderr)
+	if code != 2 || !bytes.Contains(stderr.Bytes(), []byte("unknown command")) {
+		t.Fatalf("exit code = %d, stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
 
 func TestCompactQueueOnStartIsOptInAndProducesRestartableSnapshot(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "queue.wal")

@@ -12,6 +12,7 @@ Decisions:
 - Refactor the WAL file field behind a narrow internal interface so tests can inject exact append failures without changing the on-disk format.
 - Treat a successful frame write followed by `fsync` failure as durability-ambiguous: poison the WAL and reject later mutations until restart.
 - Use the actual compiled server and real TCP for black-box crash/restart scenarios.
+- Exercise the shipped `queuemaxxing` binary as both server and client through a complete retry/dead-letter/replay lifecycle and startup compaction.
 - Use bounded operation counts and deterministic seeds so failures are reproducible.
 - Do not claim power-loss durability from `SIGKILL`; that remains a filesystem capability boundary.
 
@@ -93,6 +94,7 @@ make fidelity
   ├─ reference model → Queue API → real temp WAL → reopen
   ├─ injected walFile failures → append boundary assertions
   ├─ compiled server → real TCP → SIGKILL → same-WAL restart
+  ├─ single binary → client lifecycle → startup compaction → idempotent retry
   └─ concurrent producers/consumers/extenders → drain + leak checks
 ```
 

@@ -355,7 +355,7 @@ Add:
 qmctl extend -visibility 60s MESSAGE_ID RECEIPT
 ```
 
-The later single-entrypoint work carries the same flags and contracts into `queuemaxxing reserve` and `queuemaxxing extend`.
+The single-entrypoint implementation carries the same flags and contracts in `queuemaxxing reserve` and `queuemaxxing extend`; `qmctl get` remains a compatibility alias.
 
 ### HTTP server deadlines
 

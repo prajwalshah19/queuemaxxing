@@ -19,7 +19,7 @@ Queuemaxxing is a durable, single-node HTTP queue that combines priority, delay,
 | Long polling | Consumers can wait up to 20 seconds for eligible work |
 | Lease extension | A worker can durably extend its current delivery lease |
 | No external store | Storage is implemented directly with a local file |
-| Example application | `qmctl` exercises the complete HTTP API |
+| Example application | The same `queuemaxxing` binary exercises the complete HTTP API |
 
 One process owns one logical queue and one WAL. Run another process with another listen address and WAL path when you need another queue.
 
@@ -29,43 +29,45 @@ Requires Go 1.25 or later.
 
 ```sh
 make build
-./bin/queuemaxxing -addr 127.0.0.1:8080 -discipline fifo -data data/queue.wal
+./bin/queuemaxxing serve -addr 127.0.0.1:8080 -discipline fifo -data data/queue.wal
 ```
 
 In another terminal:
 
 ```sh
 # Enqueue JSON. Producer retries using the same key will not create duplicates.
-./bin/qmctl put -priority 10 -idempotency-key email-123 '{"task":"send-email"}'
+./bin/queuemaxxing put -priority 10 -idempotency-key email-123 '{"task":"send-email"}'
 
 # Enqueue a lower-priority message with a five-second delay.
-./bin/qmctl put -priority 1 -delay 5s '{"task":"cleanup"}'
+./bin/queuemaxxing put -priority 1 -delay 5s '{"task":"cleanup"}'
 
-./bin/qmctl stats
-./bin/qmctl get -visibility 30s -wait 20s
+./bin/queuemaxxing stats
+./bin/queuemaxxing reserve -visibility 30s -wait 20s
 
 # Set a slow job's lease deadline to 60 seconds from server time.
-./bin/qmctl extend -visibility 60s MESSAGE_ID RECEIPT
+./bin/queuemaxxing extend -visibility 60s MESSAGE_ID RECEIPT
 
-./bin/qmctl ack MESSAGE_ID RECEIPT
+./bin/queuemaxxing ack MESSAGE_ID RECEIPT
 
 # Return a reserved message using automatic exponential backoff.
-./bin/qmctl nack MESSAGE_ID RECEIPT
+./bin/queuemaxxing nack MESSAGE_ID RECEIPT
 
 # Or override the retry delay, including 0s for immediate retry.
-./bin/qmctl nack -delay 10s MESSAGE_ID RECEIPT
+./bin/queuemaxxing nack -delay 10s MESSAGE_ID RECEIPT
 
-./bin/qmctl dead list
-./bin/qmctl dead replay DEAD_LETTER_ID
+./bin/queuemaxxing dead list
+./bin/queuemaxxing dead replay DEAD_LETTER_ID
 ```
 
 For priority LIFO, use a different WAL:
 
 ```sh
-./bin/queuemaxxing -addr 127.0.0.1:8081 -discipline lifo -data data/lifo.wal
+./bin/queuemaxxing serve -addr 127.0.0.1:8081 -discipline lifo -data data/lifo.wal
 ```
 
 The discipline is stored in the WAL. Restart a WAL with the same discipline.
+
+Client commands use `http://localhost:8080` by default. Put `-url` before the command to target another process, for example `./bin/queuemaxxing -url http://127.0.0.1:8081 stats`. The older flag-only server invocation and optional `qmctl` compatibility binary remain available; `make build-compat` builds both.
 
 ### Server configuration
 
@@ -304,9 +306,8 @@ In order:
 2. Automatic compaction thresholds or segmented online compaction.
 3. Retry jitter and an optional background deadline scheduler.
 4. Batch endpoints; these reuse the existing single-message state transitions and are intentionally omitted for now.
-5. One binary with server and client subcommands for a shorter setup path.
-6. Message quotas, waiter limits, and explicit capacity limits.
-7. Replication and failover if the project moves beyond its single-node goal.
+5. Message quotas, waiter limits, and explicit capacity limits.
+6. Replication and failover if the project moves beyond its single-node goal.
 
 ### Why choose this over SQS, RabbitMQ, or Pulsar?
 

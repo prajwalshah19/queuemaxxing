@@ -2,7 +2,7 @@
 
 ## 1. Status and decision summary
 
-Status: Active. Indexed scheduling, producer idempotency, bounded retries/dead letters, lease extension, and long polling are implemented and verified locally.
+Status: Implemented and verified locally. Indexed scheduling, producer idempotency, bounded retries/dead letters, lease extension, long polling, crash-safe compaction, and one-entrypoint packaging are complete.
 
 Decisions:
 
@@ -13,9 +13,9 @@ Decisions:
 - Consumer retries use a persisted process-wide policy with five attempts, one-second base delay, five-minute maximum delay, and durable dead-letter replay.
 - Ready-message max-heap and scheduled-message min-heap indexing are implemented.
 - Producer idempotency is implemented with an optional 128-byte key, canonical request fingerprint, configurable 24-hour default retention, durable restart replay, and conflict detection.
-- Long polling and lease extension are implemented. Batch operations are deliberately omitted as straightforward API expansion; WAL compaction remains deferred and documented.
+- Long polling, lease extension, and crash-safe compaction are implemented. Batch operations are deliberately omitted as straightforward API expansion.
 - Authentication, TLS termination, distributed tracing, rate limiting, and a full metrics stack are acknowledged production integrations, not submission-critical queue logic.
-- Single-binary packaging and the shortest possible setup path are the final implementation slice.
+- `queuemaxxing` now supplies both `serve` and client commands; the standalone `qmctl` remains an optional compatibility binary.
 
 Blocking decisions: none.
 
@@ -288,7 +288,7 @@ Add benchmarks for enqueue, reserve, ack, and startup replay at representative q
 - Batch enqueue, reserve, ack, and nack reuse the existing single-message state transitions.
 - Exact partial-failure semantics would expand the API without exercising new queue fundamentals, so the README acknowledges the omission.
 
-### Slice 6: crash-safe compaction
+### Slice 6: crash-safe compaction — implemented locally
 
 - Add stop-the-world live-state rewrite and failure injection.
 - First failing test: pre/post-compaction state equivalence.
@@ -300,7 +300,7 @@ Add benchmarks for enqueue, reserve, ack, and startup replay at representative q
 - Document single-queue/process scope, at-least-once behavior, omitted infrastructure integrations, and measured limits.
 - No feature expansion.
 
-### Slice 8: one-entrypoint packaging
+### Slice 8: one-entrypoint packaging — implemented locally
 
 - Merge server and client commands into one `queuemaxxing` binary with `serve`, `put`, `reserve`, `ack`, `nack`, `stats`, and dead-letter commands.
 - Provide one obvious local quickstart and optional container packaging.

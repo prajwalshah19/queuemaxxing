@@ -56,20 +56,24 @@ func TestNackExplicitZeroOverridesBackoff(t *testing.T) {
 }
 
 func TestGetSendsLongPollWait(t *testing.T) {
-	transport := &recordingDoer{}
-	c := &client{baseURL: "http://queue.test", http: transport}
-	if err := run(c, "get", []string{"-visibility", "45s", "-wait", "20s"}); err != nil {
-		t.Fatal(err)
-	}
-	if transport.request.URL.Path != "/v1/messages/reserve" {
-		t.Fatalf("path = %s", transport.request.URL.Path)
-	}
-	var body map[string]any
-	if err := json.NewDecoder(transport.request.Body).Decode(&body); err != nil {
-		t.Fatal(err)
-	}
-	if body["visibility_timeout_seconds"] != float64(45) || body["wait_timeout_seconds"] != float64(20) {
-		t.Fatalf("get body = %#v", body)
+	for _, command := range []string{"get", "reserve"} {
+		t.Run(command, func(t *testing.T) {
+			transport := &recordingDoer{}
+			c := &client{baseURL: "http://queue.test", http: transport}
+			if err := run(c, command, []string{"-visibility", "45s", "-wait", "20s"}); err != nil {
+				t.Fatal(err)
+			}
+			if transport.request.URL.Path != "/v1/messages/reserve" {
+				t.Fatalf("path = %s", transport.request.URL.Path)
+			}
+			var body map[string]any
+			if err := json.NewDecoder(transport.request.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if body["visibility_timeout_seconds"] != float64(45) || body["wait_timeout_seconds"] != float64(20) {
+				t.Fatalf("%s body = %#v", command, body)
+			}
+		})
 	}
 }
 
