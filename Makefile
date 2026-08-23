@@ -17,4 +17,4 @@ fidelity: build
 	QUEUEMAXXING_BIN="$(CURDIR)/bin/queuemaxxing" go test -tags=fidelity -count=1 ./...
 
 run:
-	go run ./cmd/queuemaxxing -- serve
+	go run ./cmd/queuemaxxing serve

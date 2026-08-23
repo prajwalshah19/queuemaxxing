@@ -40,6 +40,17 @@ func TestUnifiedEntrypointRejectsUnknownCommand(t *testing.T) {
 	}
 }
 
+func TestUnifiedEntrypointServeHelpSucceeds(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := runApplication([]string{"serve", "-h"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d, stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !bytes.Contains(stderr.Bytes(), []byte("Usage of serve:")) {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
 func TestCompactQueueOnStartIsOptInAndProducesRestartableSnapshot(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "queue.wal")
 	q, err := queue.Open(path, queue.FIFO)

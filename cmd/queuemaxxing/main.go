@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -37,6 +38,9 @@ func runApplicationWithClient(args []string, stdout, stderr io.Writer, executeCl
 	}
 	if args[0] == "serve" {
 		if err := runServer(args[1:], stdout, stderr); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return 0
+			}
 			fmt.Fprintln(stderr, "error:", err)
 			return 1
 		}
@@ -44,6 +48,9 @@ func runApplicationWithClient(args []string, stdout, stderr io.Writer, executeCl
 	}
 	if isLegacyServerInvocation(args[0]) {
 		if err := runServer(args, stdout, stderr); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return 0
+			}
 			fmt.Fprintln(stderr, "error:", err)
 			return 1
 		}
