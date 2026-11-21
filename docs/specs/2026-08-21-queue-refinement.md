@@ -8,13 +8,13 @@ Decisions:
 
 - One process owns exactly one logical queue and one WAL.
 - FIFO/LIFO discipline is process-wide and persisted in the WAL.
-- Named queues are out of scope for this submission. Multiple queues require multiple processes and WAL paths.
+- Named queues are out of scope. Multiple queues require multiple processes and WAL paths.
 - Delivery remains at least once.
 - Consumer retries use a persisted process-wide policy with five attempts, one-second base delay, five-minute maximum delay, and durable dead-letter replay.
 - Ready-message max-heap and scheduled-message min-heap indexing are implemented.
 - Producer idempotency is implemented with an optional 128-byte key, canonical request fingerprint, configurable 24-hour default retention, durable restart replay, and conflict detection.
 - Long polling, lease extension, and crash-safe compaction are implemented. Batch operations are deliberately omitted as straightforward API expansion.
-- Authentication, TLS termination, distributed tracing, rate limiting, and a full metrics stack are acknowledged production integrations, not submission-critical queue logic.
+- Authentication, TLS termination, distributed tracing, rate limiting, and a full metrics stack are production integrations, not part of the queue itself.
 - `queuemaxxing` now supplies both `serve` and client commands; the standalone `qmctl` remains an optional compatibility binary.
 
 Blocking decisions: none.
@@ -39,7 +39,7 @@ Goals:
 - Bound steady-state selection cost and WAL growth.
 - Preserve restart durability through every new state transition.
 - Keep deployment dependency-free and single-node.
-- Keep the API small enough to explain completely in the README.
+- Keep the API small.
 
 Non-goals:
 
@@ -69,14 +69,14 @@ Option A: one queue per process.
 - Preserves the existing API and WAL model.
 - Makes configuration, failure containment, compaction, and explanation simple.
 - Multiple queues require multiple processes/ports or an external supervisor.
-- Selected for this submission.
+- Selected.
 
 Option B: multiple named queues per process.
 
 - Adds queue names to every route and every durable event.
 - Requires per-queue capacity, fairness, stats, deletion, configuration, and recovery semantics.
 - Creates ambiguity because FIFO/LIFO is process-wide while data is queue-scoped.
-- Rejected as scope without improving the core assignment.
+- Rejected. It adds scope without improving the queue.
 
 ### Selection index
 
@@ -97,7 +97,7 @@ Option C: one FIFO/LIFO deque per priority plus a time heap.
 
 - Fast ready operations, but priority cardinality and queue bookkeeping are more complex.
 - Offers little benefit over a ready heap for this workload.
-- Rejected for the initial submission.
+- Rejected for the initial version.
 
 ### WAL compaction
 
@@ -106,7 +106,7 @@ Option A: stop-the-world live-state rewrite.
 - Under the queue mutex, write the current durable state to a temporary generation, sync it, atomically rename it over the old WAL, sync the parent directory, and reopen for append.
 - Simple recovery story and no separate storage engine.
 - Temporarily blocks queue operations during compaction.
-- Selected for the initial submission.
+- Selected for the initial version.
 
 Option B: snapshot plus WAL segments.
 
@@ -216,7 +216,7 @@ Crash-safe compaction protocol:
 6. Open the new generation for append, then close the old descriptor.
 7. Ignore or clean stale temporary generations during startup.
 
-The README must state that the submission omits built-in auth, TLS, rate limiting, tracing, and a metrics backend. It must also state that production deployments need those controls at the process or proxy boundary.
+The server omits built-in auth, TLS, rate limiting, tracing, and a metrics backend. Production deployments need those controls at the process or proxy boundary.
 
 Minimum built-in diagnostics remain structured startup/shutdown/error logging, health, and queue state counts. This is enough to diagnose terminal storage failure without turning observability integrations into the project.
 

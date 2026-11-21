@@ -107,7 +107,7 @@ Non-goals:
 - Registers each waiter and wakes only selected consumers.
 - Can provide fairness and avoid broadcast contention.
 - Requires waiter lifecycle, cancellation removal, dispatcher ownership, and shutdown coordination.
-- Rejected for the single-node submission. It remains reversible because waiter state is ephemeral.
+- Rejected for the single-node design. It remains reversible because waiter state is ephemeral.
 
 ### Scheduled-time wakeups
 
@@ -497,8 +497,8 @@ Add a goroutine-leak regression test around repeated timeout/cancel cycles. If t
 
 ## 13. Open questions and UNVERIFIED assumptions
 
-- The 20-second maximum wait and 30-second server write timeout are submission defaults, not workload-derived.
-- Broadcast wakeups are expected to be acceptable for a single-node submission; behavior with thousands of concurrent waiters is **UNVERIFIED**. Benchmark before making scale claims.
+- The 20-second maximum wait and 30-second server write timeout are current defaults, not workload-derived.
+- Broadcast wakeups are expected to be acceptable for a single-node design; behavior with thousands of concurrent waiters is **UNVERIFIED**. Benchmark before making scale claims.
 - There is no fairness guarantee between waiting consumers. Adding one would require the rejected waiter-dispatcher design.
 - A repeated extension after a lost response may extend slightly further. Adding idempotent mutation keys is deferred unless this behavior proves unacceptable.
 - Total lease age is unbounded while the current worker continues to extend successfully.

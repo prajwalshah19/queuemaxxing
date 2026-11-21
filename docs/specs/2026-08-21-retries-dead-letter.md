@@ -320,7 +320,7 @@ Each slice stops safely with additive WAL events. Do not commit or push until th
 
 ## 13. Open questions and UNVERIFIED assumptions
 
-- The default values `5 attempts / 1s base / 5m max` are selected for this submission, not derived from workload measurements.
+- The default values `5 attempts / 1s base / 5m max` are chosen as defaults, not derived from workload measurements.
 - Acceptable dead-letter list latency and maximum dead-letter cardinality are **UNVERIFIED**; the first implementation sorts the in-memory map because this is an administrative path.
 - Whether long polling should advance retries without an active reserve request is deferred to the long-polling design.
 - Full protection from post-write `fsync` ambiguity is deferred to the crash-safety slice and must remain documented.

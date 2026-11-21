@@ -2,9 +2,9 @@
 
 Queuemaxxing is a durable, single-node HTTP queue that combines priority, delay, and process-wide FIFO or LIFO ordering. It runs as one Go process, stores its own data in a local write-ahead log, and does not depend on a database or another queue.
 
-## Requirements
+## Behavior
 
-| Requirement | Implementation |
+| Behavior | Implementation |
 |---|---|
 | FIFO or LIFO | Selected for the process with `-discipline fifo` or `-discipline lifo` |
 | Priority | Higher integer priority is delivered first |
@@ -19,7 +19,7 @@ Queuemaxxing is a durable, single-node HTTP queue that combines priority, delay,
 | Long polling | Consumers can wait up to 20 seconds for eligible work |
 | Lease extension | A worker can durably extend its current delivery lease |
 | No external store | Storage is implemented directly with a local file |
-| Example application | The same `queuemaxxing` binary exercises the complete HTTP API |
+| CLI | The same `queuemaxxing` binary exercises the complete HTTP API |
 
 One process owns one logical queue and one WAL. Run another process with another listen address and WAL path when you need another queue.
 
@@ -266,7 +266,7 @@ The tradeoff is write throughput: mutations are serialized and each one performs
 
 ## Design boundaries
 
-This submission intentionally has a narrow scope:
+The scope is intentionally narrow:
 
 - One queue per process and WAL.
 - One machine and one disk; no replication or automatic failover.
@@ -277,43 +277,6 @@ This submission intentionally has a narrow scope:
 - No built-in authentication, TLS termination, rate limiting, tracing, or metrics backend.
 
 The last group belongs at the deployment boundary rather than in the queue core. Do not expose the server directly to an untrusted network; bind it to localhost or place it behind a trusted proxy or service mesh.
-
-## Assignment questions
-
-### How do you handle replay messages?
-
-The lease model handles operational replay. If a consumer crashes or misses its acknowledgement deadline, the next reserve advances the expired lease into deterministic exponential backoff. Explicit `nack` does the same or accepts an override. Each retry receives a new receipt; exhausted messages move to durable dead-letter state after five reservations by default.
-
-Operators can inspect dead letters and replay one intentionally. Replay creates a new message ID and preserves the exhausted ID as `original_message_id`, avoiding ambiguity with stale receipts and consumer deduplication state.
-
-Producer retries use `Idempotency-Key`, which prevents a lost enqueue response from creating a duplicate message. Slow consumers can extend an unexpired lease so ordinary processing time does not create an avoidable retry.
-
-### How would you refactor the queue into Pub/Sub?
-
-I would keep one immutable message log and replace destructive queue state with independent subscription state:
-
-- Publish writes each payload once.
-- Every subscription owns its own cursor, leases, and acknowledgement state.
-- One subscriber cannot remove data needed by another subscriber.
-- Retention removes a log segment only after every durable subscription passes it or its retention window expires.
-- Priority and delay become subscription delivery policies rather than properties of one destructive consumer group.
-
-### What would you add with more time?
-
-In order:
-
-1. Power-loss and filesystem fault validation beyond syscall-level and in-process fault tests.
-2. Automatic compaction thresholds or segmented online compaction.
-3. Retry jitter and an optional background deadline scheduler.
-4. Batch endpoints; these reuse the existing single-message state transitions and are intentionally omitted for now.
-5. Message quotas, waiter limits, and explicit capacity limits.
-6. Replication and failover if the project moves beyond its single-node goal.
-
-### Why choose this over SQS, RabbitMQ, or Pulsar?
-
-Choose Queuemaxxing when the constraint is a small, transparent, dependency-free queue on one host: local development, an appliance, an edge node, or a service where running a broker is disproportionate. It combines priority, delay, and FIFO/LIFO in one API, ships as ordinary Go binaries, and uses an inspectable local event log.
-
-Choose an incumbent when you need stronger operational guarantees. SQS provides managed durability and scale. RabbitMQ provides mature routing and administration. Pulsar provides replicated logs, retention, multi-tenancy, and streaming. Queuemaxxing does not claim those guarantees.
 
 ## Development
 
